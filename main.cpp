@@ -3,7 +3,21 @@
 #include <iostream>
 
 #include <chrono>
+#include <functional>
 
+#define NUM_OF_LOOPS 0
+
+void time_this(std::function<const char*(const char*)> fp, const char* p, std::string desc) {
+    std::cout << desc << "\n";
+    auto t1 = std::chrono::steady_clock::now();
+    for (int i = 0; i < NUM_OF_LOOPS; i++) {
+        fp(p);
+    }
+    auto p2 = fp(p);
+    auto t2 = std::chrono::steady_clock::now();
+    auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(t2.time_since_epoch() - t1.time_since_epoch()).count();
+    std::cout << "First non-whitespace: " << p2 - p << " time: " << diff << "\n";
+}
 
  //! RapidJson implementation
  inline const char *SkipWhitespace_SIMD(const char* p) {
@@ -45,15 +59,13 @@
      }
 
 //! Naive implementation
-inline const char * stupid_function(const char* p, std::string& str) {
-    int i = 0;
-    for (i = 0; i < str.length(); i = i + 1)
+inline const char * stupid_function(const char* p) {
+    for (; ; p++)
         if (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
-            ++p;
+            continue;
         else {
             return p;
         }
-    return p;
 }
 
 //! AVX2 implementation - basically the rapidjson logic with 256 bit operations
@@ -99,44 +111,20 @@ inline const char * avx2_skipwhitespace(const char* p) {
 
 int main() {
     std::string str = "        bbbbb";
-    std::cout<<"No avx: \n";
 
-    //when running O3 compiler will very aggressively optimize the naive implementation, making tests useless
-    #define NUM_OF_LOOPS 1
+    // when running O3 compiler will very aggressively optimize the naive implementation,
+    // making testing a huge loop useless
+    // std::function causes a slight (~10ns) performance penalty, but since this is applied to all functions equally
+    // and the purpose of the test is to compare implementations we don't care that much
+    std::function<const char *(const char *)> fp1 = stupid_function;
+    std::function<const char *(const char *)> fp2 = SkipWhitespace_SIMD;
+    std::function<const char *(const char *)> fp3 = avx2_skipwhitespace;
 
     auto p = str.c_str();
-    const char* p2;
-    auto t1 = std::chrono::steady_clock::now();
-    for (int i = 0; i < NUM_OF_LOOPS; i++) {
-        stupid_function(p, str);
-        //    return SkipWhitespace(p, end);
-    }
-    p2 = stupid_function(p, str);
-    auto t2 = std::chrono::steady_clock::now();
-    auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(t2.time_since_epoch() - t1.time_since_epoch()).count();
-    std::cout << "First non-whitespace: " << p2 - p << " time: " << diff << "\n";
 
-    std::cout<<"RapidJson sse: \n";
-    t1 = std::chrono::steady_clock::now();
-    for (int i = 0; i < NUM_OF_LOOPS; i++) {
-        SkipWhitespace_SIMD(p);
-    }
-    p2 = SkipWhitespace_SIMD(p);
-    t2 = std::chrono::steady_clock::now();
-    diff = std::chrono::duration_cast<std::chrono::nanoseconds>(t2.time_since_epoch() - t1.time_since_epoch()).count();
-    std::cout << "First non-whitespace: " << p2 - p << " time: " << diff << "\n";
-
-
-    std::cout<<"With avx: \n";
-    t1 = std::chrono::steady_clock::now();
-    for (int i = 0; i < NUM_OF_LOOPS; i++) {
-        avx2_skipwhitespace(p);
-        //    return SkipWhitespace(p, end);
-    }
-    p2 = avx2_skipwhitespace(p);
-    t2 = std::chrono::steady_clock::now();
-    diff = std::chrono::duration_cast<std::chrono::nanoseconds>(t2.time_since_epoch() - t1.time_since_epoch()).count();
-    std::cout << "First non-whitespace: " << p2 - p << " time: " << diff << "\n";
+    time_this(fp1, p, "Naive implementation:");
+    time_this(fp2, p, "RapidJson SSE:");
+    time_this(fp3, p, "AVX2:");
 
     return 0;
 }
